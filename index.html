@@ -1600,6 +1600,18 @@ body{background:var(--sh-page) fixed}
 :root[data-shell="art"] #soundBtn{left:41.86%;top:89.98%;width:24%;height:5.6%}
 :root[data-shell="art"] #setBtn{left:81.6%;top:89.98%;width:20.4%;height:5.6%}
 :root[data-shell="art"] .mini:active{background:rgba(255,255,255,.4)}
+
+/* データ（バックアップ／復元） */
+.data-list{display:flex;flex-direction:column;gap:5px;margin-top:8px}
+.data-row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+  font:700 10px/1.3 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;color:#a99cc9}
+.data-row b{color:#fff;font-weight:800}
+.data-row .sz{font:700 9px/1 ui-monospace,Menlo,monospace;color:#7d7499}
+.data-btns{display:flex;gap:6px;margin-top:10px}
+.data-btns button{flex:1 1 0;padding:10px 4px;border:0;border-radius:10px;cursor:pointer;
+  background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+  color:#e7dcf5;font:700 10px/1.15 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif}
+.data-btns button:active{background:rgba(255,158,196,.24)}
 </style>
 </head>
 <body>
@@ -2005,7 +2017,7 @@ body{background:var(--sh-page) fixed}
       <button class="xbtn" id="photoClose" aria-label="閉じる">×</button>
     </div>
     <img id="photoImg" alt="液晶のしゃしん">
-    <p class="photo-note">長おし（または右クリック）で保存できます。<br>うまくいかない時は下のボタンから。</p>
+    <p class="photo-note">保存するときは 下のボタンを押してください。<br>長おし（右クリック）からも保存できます。</p>
     <a class="draw-btn primary" id="photoSave" download>この画像を保存</a>
   </div>
 </div>
@@ -2138,6 +2150,17 @@ body{background:var(--sh-page) fixed}
       <div class="fall-sets" id="fallSets" role="group" aria-label="ふってくるもの"></div>
       <input type="file" id="fallInput" accept="image/*" hidden>
       <p class="note">なにも選ばなければ <b>ランダムな2種セット</b>が降ります。えらぶと その<b>2種類</b>だけが降ります。</p>
+    </section>
+
+    <section class="field">
+      <div class="f-label"><span>データ</span><span class="sub">この端末のなかに ほぞん中</span></div>
+      <div class="data-list" id="dataList"></div>
+      <p class="note">まえに遊んだ絵と設定は、次に開いたときに自動で よみこまれます。</p>
+      <div class="data-btns">
+        <button type="button" id="dataBackup">バックアップを保存</button>
+        <button type="button" id="dataRestore">バックアップから もどす</button>
+      </div>
+      <input type="file" id="dataFile" accept="application/json,.json" hidden>
     </section>
 
     <button class="reset" id="resetBtn">位置と大きさをリセット</button>
@@ -2795,6 +2818,7 @@ function setSource(src, isUserPhoto){
       blip(660,0.07); blip(990,0.09,"square",0.05,0.08);
     }
     layoutSprite();
+    if(isUserPhoto) savePet(true);
   };
   im.onerror = function(){
     console.warn("画像を読み込めませんでした");
@@ -2867,6 +2891,7 @@ function setDragOffset(dx, dy){
 function applyTransform(){
   spritePos.style.transform = "translate(-50%,-50%) translate(" + state.ox + "px," + state.oy + "px)";
   spriteZoom.style.transform = "translate(" + dragDX + "px," + dragDY + "px) scale(" + state.zoom + ")";
+  if(state.isUserPhoto) savePet();
 }
 
 function syncPositionOutputs(){
@@ -4485,8 +4510,7 @@ function saveScreenPhoto(){
       img.src = url; a.href = url; a.download = name;
       $("#photoView").classList.add("open");
       $("#photoView").setAttribute("aria-hidden","false");
-      photoURL = url;
-      try{ downloadURL(url, name); }catch(e){}   /* だめでもプレビューは出る */
+      photoURL = url;   /* ここでは保存しない（下のボタンを押したときだけ保存） */
     }, "image/png");
   };
   const scene = document.querySelector(".scene.on") || document.querySelector(".scene");
@@ -4801,6 +4825,150 @@ function buildShellPicks(){
   });
 }
 
+/* ===== まえに遊んだ絵と設定を のこす／よみこむ ===== */
+const PET_KEY = "picot_pet_v1";
+let petSaveTimer = 0;
+/* 大きい写真は 512px まで縮めてから残す（容量オーバー対策） */
+function shrinkDataURL(src, maxPx, cb){
+  let done = false;
+  const fin = function(v){ if(done) return; done = true; cb(v); };
+  const im = new Image();
+  im.onload = function(){
+    try{
+      const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+      const m = Math.max(w, h);
+      if(!m || m <= maxPx){ fin(src); return; }
+      const k = maxPx / m;
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * k));
+      c.height = Math.max(1, Math.round(h * k));
+      const g = c.getContext("2d");
+      g.imageSmoothingEnabled = false;
+      g.drawImage(im, 0, 0, c.width, c.height);
+      fin(c.toDataURL("image/png"));
+    }catch(e){ fin(src); }
+  };
+  im.onerror = function(){ fin(src); };
+  setTimeout(function(){ fin(src); }, 3000);
+  im.src = src;
+}
+let petQuotaWarned = false;
+function savePet(now){
+  clearTimeout(petSaveTimer);
+  const doIt = function(){
+    try{
+      if(!state.srcReady || !state.imgEl || !state.isUserPhoto) return;
+      const src = spriteImg.getAttribute("src") || "";
+      if(src.indexOf("data:") !== 0) return;          /* blob: は残せない */
+      shrinkDataURL(src, 512, function(small){
+        try{
+          localStorage.setItem(PET_KEY, JSON.stringify({
+            v:1, src:small, kind:state.srcKind, block:state.block, pixel:!!state.pixel,
+            ox:Math.round(state.ox), oy:Math.round(state.oy), ts:Date.now()
+          }));
+        }catch(e){
+          if(!petQuotaWarned){
+            petQuotaWarned = true;
+            toast("ほぞん容量がいっぱいです。「ほぞんした絵」を少し消してください");
+          }
+        }
+        renderDataList();
+      });
+    }catch(e){}
+  };
+  if(now) doIt(); else { petSaveTimer = setTimeout(doIt, 500); }
+}
+function restorePet(){
+  try{
+    const raw = localStorage.getItem(PET_KEY); if(!raw) return false;
+    const d = JSON.parse(raw); if(!d || !d.src) return false;
+    state.srcKind = d.kind || "draw";
+    setSource(d.src, true);
+    setTimeout(function(){
+      try{
+        if(typeof d.block === "number"){
+          state.block = d.block; blockRange.value = d.block; blockOut.textContent = d.block;
+          qBlock.value = d.block; qBlockOut.textContent = d.block;
+        }
+        state.pixel = (d.pixel !== false);
+        applyDisplayMode();
+        if(typeof d.ox === "number"){ state.ox = d.ox; oxRange.value = d.ox; }
+        if(typeof d.oy === "number"){ state.oy = d.oy; oyRange.value = d.oy; }
+        applyTransform(); syncPositionOutputs(); layoutSprite();
+      }catch(e){}
+    }, 80);
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ===== データ（一覧・バックアップ・復元） ===== */
+const BACKUP_RE = /^(picot_|oshiboy_)/;
+function bytesLabel(n){
+  if(n >= 1024*1024) return (n/1024/1024).toFixed(1) + "MB";
+  if(n >= 1024) return Math.round(n/1024) + "KB";
+  return n + "B";
+}
+function keySize(k){
+  try{ const v = localStorage.getItem(k); return v ? (k.length + v.length) * 2 : 0; }catch(e){ return 0; }
+}
+function backupKeys(){
+  const out = {};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && BACKUP_RE.test(k)) out[k] = localStorage.getItem(k);
+    }
+  }catch(e){}
+  return out;
+}
+function renderDataList(){
+  const box = $("#dataList"); if(!box) return;
+  const rows = [];
+  const pet = keySize(PET_KEY);
+  if(pet) rows.push(['まえの絵（自動保存）', bytesLabel(pet)]);
+  let draws = 0;
+  try{ const a = JSON.parse(localStorage.getItem(DRAW_STORE_KEY) || "[]"); draws = (a && a.length) || 0; }catch(e){}
+  const dsz = keySize(DRAW_STORE_KEY);
+  rows.push(['ほぞんした絵', draws ? (draws + "まい ・ " + bytesLabel(dsz)) : "なし"]);
+  const diary = keySize(DIARY_KEY);
+  rows.push(['にっき・きろく', diary ? bytesLabel(diary) : "なし"]);
+  const shell = keySize(SHELL_KEY), tone = keySize(ART_KEY);
+  rows.push(['本体カラー・設定', (shell || tone) ? bytesLabel(shell + tone) : "なし"]);
+  box.innerHTML = rows.map(function(r){
+    return '<div class="data-row"><b>' + r[0] + '</b><span class="sz">' + r[1] + '</span></div>';
+  }).join("");
+}
+function exportBackup(){
+  try{
+    const data = { app:"PICOT", v:1, at:new Date().toISOString(), keys:backupKeys() };
+    const blob = new Blob([JSON.stringify(data)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    downloadURL(url, "picot-backup-" + stamp() + ".json");
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    toast("バックアップを保存しました");
+    blip(1046,0.07,"triangle",0.045);
+  }catch(e){ toast("バックアップできませんでした"); }
+}
+function importBackup(file){
+  const r = new FileReader();
+  r.onload = function(){
+    try{
+      const d = JSON.parse(String(r.result));
+      const keys = d && d.keys ? d.keys : d;
+      let n = 0;
+      Object.keys(keys || {}).forEach(function(k){
+        if(!BACKUP_RE.test(k)) return;
+        if(typeof keys[k] !== "string") return;
+        localStorage.setItem(k, keys[k]); n++;
+      });
+      if(!n){ toast("このファイルには データが入っていません"); return; }
+      toast(n + "こ もどしました。よみこみ直します…");
+      setTimeout(function(){ location.reload(); }, 900);
+    }catch(e){ toast("ファイルを読めませんでした"); }
+  };
+  r.readAsText(file);
+}
+
 /* ===== ドット絵のいろちがい（色相・あざやかさ） ===== */
 const ART_KEY = "picot_art_tone_v1";
 const ART_PRESETS = [
@@ -4865,6 +5033,22 @@ function init(){
   buildShellPicks();
   buildArtTone();
   applyShell(shellId, false);
+  /* まえに遊んだ絵をよみこむ */
+  try{ restorePet(); }catch(e){}
+  renderDataList();
+  /* データのボタン */
+  (function dataUI(){
+    const b = $("#dataBackup"), r = $("#dataRestore"), f = $("#dataFile");
+    if(b) b.addEventListener("click", exportBackup);
+    if(r && f){
+      r.addEventListener("click", function(){ f.click(); });
+      f.addEventListener("change", function(){
+        const file = f.files && f.files[0];
+        if(file) importBackup(file);
+        f.value = "";
+      });
+    }
+  })();
 
   /* アイコン差し込み */
   document.querySelectorAll(".abtn").forEach(function(btn){
@@ -5418,5 +5602,5 @@ if(document.readyState === "loading"){
 }
 })();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a57e2200ff07d3d5',t:'MTc5NDI0MTEwMA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a57e2200ff07d3d5',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a58335907acfa5fb',t:'MTc5NDI5NDMzMA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a58335907acfa5fb',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
