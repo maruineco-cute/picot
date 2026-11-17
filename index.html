@@ -1612,6 +1612,16 @@ body{background:var(--sh-page) fixed}
   background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
   color:#e7dcf5;font:700 10px/1.15 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif}
 .data-btns button:active{background:rgba(255,158,196,.24)}
+
+/* しゃべりかた */
+.vchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.vchip{flex:1 1 0;min-width:0;padding:9px 4px;border:0;border-radius:10px;cursor:pointer;
+  background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+  color:#cfc4e6;font:700 10px/1.2 "Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vchip.on{background:rgba(255,158,196,.24);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,158,196,.65)}
+.vchip:active{background:rgba(255,158,196,.3)}
+.voice-sub{margin-top:12px}
 </style>
 </head>
 <body>
@@ -2099,6 +2109,13 @@ body{background:var(--sh-page) fixed}
       <div class="f-label"><span>なまえ</span><span class="note">セリフで呼びます</span></div>
       <input class="namein" id="nameInput" type="text" maxlength="12" autocomplete="off"
              placeholder="推しのなまえ（れい：みお）" aria-label="推しのなまえ">
+    </section>
+
+    <section class="field">
+      <div class="f-label"><span>しゃべりかた</span><span class="sub">セリフの くせ</span></div>
+      <div class="vchips" id="voicePicks" role="radiogroup" aria-label="しゃべりかた"></div>
+      <div class="f-label voice-sub"><span>一人称</span><span class="sub">セリフの よびかた</span></div>
+      <div class="vchips" id="mePicks" role="radiogroup" aria-label="一人称"></div>
     </section>
 
     <section class="field row-field">
@@ -3651,10 +3668,299 @@ const MOODS = {
            "いえ マークで はいけい チェンジ","カメラ マークで しゃしん ♪",
            "パレット で おえかき できるよ","じゅうじキー で いち ちょうせい",
            "ドットの あらさも かえられるよ"]
+  },
+  held:{
+    fx:null,
+    lines:["えへへ、うれしい","なでなで ありがとう","きもちいいね","もっと なでて いいよ",
+           "あったかい て","だっこ うれしい","ここ すき","もっと いて"]
+  },
+  play:{
+    fx:null,
+    lines:["たかいたかい！","わーい！","とぶの すき！","もっと はやく！","ゆらゆら きもちいい",
+           "ここ から みるの たのしい","もう いっかい！","そら とんでる みたい",
+           "きゃー！ たのしい！","もっと たかく！"]
   }
 };
 
-let balloonTypeTimer = null, balloonHideTimer = null;
+
+/* ========== しゃべりかた（ボイス）========== */
+/* {name}＝なまえ、{me}＝一人称 に置きかわる */
+const VOICES = {
+  normal:{
+    label:"ふつう", me:"わたし", lines:null,
+    calls:[ "{name}！", "{name} ♪", "{name}…♡", "{name} だいすき", "ねえ {name}", "{name}、いる？" ]
+  },
+  genki:{
+    label:"げんき", me:"オレ",
+    calls:[ "{name}！ きけよ！", "なあ {name}！", "{name}、あそぼーぜ", "{name} は オレの もの",
+            "おい {name}！", "{name} って よぶな オレを" ],
+    lines:{
+      happy:["やっほー！ {me}、{name}！","きょうも さいこう じゃん！","ねえねえ あそぼ！",
+             "えへん、{name} は つよいんだぞ","たのしすぎて とまんない！","{me} に まかせなって",
+             "ちょっと すごくない？ {name}","はしゃぐよー！"],
+      sing:["♪ らららー！ うたうぞ！","{me} の うた、きけって！","さいこうの きょく いくよ！",
+            "♪ ぱん ぱん ぱーん！","うまいだろ？ もっと ほめて いいぞ","こんやは {me} の ライブ！",
+            "マイク よこせー！","アンコール まってるからな"],
+      sleepy:["ね、ねむくないし！","ちょっと だけ… め とじる…","おきてるって ば…",
+              "はやく ふとん だせよ…","5ふんだけ… 5ふんだからな…","すぴー… ちがう！ ねてない！",
+              "あさ よばないでよね…","ゆめの なかでも つよいんだぞ…"],
+      hungry:["メシ！ メシ もってこい！","はら へったー！ はやく！","おにぎり 3こ な！",
+              "ぐ〜… きこえた？ きこえてないよね","おやつ ぬきは ゆるさない","べつばら なめんなよ",
+              "なんでも いいから はやく〜","いただきます は 3かい いうタイプ"],
+      love:["べ、べつに すき とか じゃないし！","…ちょっと は すき。ちょっと ね",
+            "ずっと いっしょに いたい… なんて いってない！","て つなぐ？ しょーがないから",
+            "{name} は おまえの もの だぞ","きゅん… って してない！",
+            "ほかの こ みちゃ だめだからな","す、すき… ♡"],
+      confused:["え、え？ どこ つれてくの！","ちょ、まてって！","め まわるー！","おろせー！",
+                "ここ どこだよ…","こういうの にがて なんだって","ふわふわ すんな！","ちょっと たすけてー！"],
+      angry:["こらっ！ いいかげんに しろよ！","ぷんぷん だぞ！","おこった！ ほんとに おこった！",
+             "さわるなって いってる！","もう しらない！","あやまれ！ いま すぐ！",
+             "ここ オレの ばしょ！","ぷいっ て してやる"],
+      surprised:["うわっ！ びっくり した！","こちょこちょ すんなー！","えぇっ！？","うひゃっ！",
+                 "なにすんだよー！","こわい こわい こわい！","つんつん やめろって！","しんぞう とまるー！"],
+      eat:["うま！ これ うまい！","もぐもぐ… はやく つぎ！","おかわり まだ？",
+           "{me} は たべざかり なんだよ","ごちそうさま！ もう いっこ！","ぱくぱく ぱくぱく！",
+           "これを まってた！","しあわせ って これか…"],
+      hint:["SET おせよ！ はやく！","がぞう まだ なの？","パレット で え かけよ！",
+            "じゅうじキー で うごくぞ","いえ マーク で はいけい かわる","カメラ で しゃしん とれるって",
+            "{name} に して ほしいな","ドットの あらさ かえてみ？"],
+      held:["なでる なら もっと なでろよ","えへん、オレ かわいい だろ","そこ いい ぞ",
+            "くすぐったい けど いい","はなすなよ","オレの ここ すき だろ"],
+      play:["うおー！ たかいたかい！","もっと ふれー！","とぶの すき なんだよ！","オレ そら とべる！",
+            "はやく はやく！","もう いっかい やれ！","きゃっほーい！","もっと たかく！"]
+    }
+  },
+  yasashi:{
+    label:"やさしい", me:"わたし",
+    calls:[ "{name} さん…", "ねえ、{name}", "{name}、だいじょうぶ ですか", "{name}… すき です",
+            "{name} の こと、みて ます", "…{name}" ],
+    lines:{
+      happy:["えへへ、うれしい です","きょうは いい ひ ですね","しずかに、しあわせ です",
+             "あなたが いて くれると ほっと します","ありがとう… ございます","すこし だけ わらえました",
+             "こうして いると あんしん します","よかったら、そばに いますね"],
+      sing:["…ちいさく うたっても いい ですか","♪ ら、らら…","おと が きもちいい です",
+            "きこえて いますか… ♪","はずかしい けど、うたいます","♪ んー んー…",
+            "こえ、でてる かな","いっしょに うたうと うれしい です"],
+      sleepy:["すこし ねむく なって きました","…おやすみ なさい","ふわぁ… すみません",
+              "あと すこし だけ…","ゆめの なかは しずか です","ねても いい ですか…",
+              "まぶた が おもい です","すぴ… すぴ…"],
+      hungry:["おなか が、すこし なりました","なにか たべても いい ですか","おにぎり、ひとつ だけ…",
+              "ぐ… すみません、うるさかった ですか","おやつ、わけっこ しましょう","ゆっくり たべたい です",
+              "あったかい ものが いい ですね","まだ がまん できます"],
+      love:["だいすき です… はずかしい けど","ずっと、そばに いて ほしい です","あなたの こと、みて います",
+            "て、つないでも いい ですか","きゅん、と しました","しずかに、すき です",
+            "あなたが いると、あったかい です","…すき です ♡"],
+      confused:["え… どこへ いくの ですか","あ、あの… はやい です","め が まわります…",
+                "ここは、どこ でしょう","おろして もらえると、うれしい です","ふわふわ します…",
+                "ちょっと、こわい です","ゆっくり いきましょう…"],
+      angry:["…ちょっと、いや です","やめて ください","かなしい です…","そこは、さわらないで ほしい です",
+             "もう、いい です","しずかに して ください","ないて しまいます…","…むー"],
+      surprised:["ひゃっ…！","びっくり しました…","こ、こちょこちょ は だめ です","え… え…？",
+                 "こころ が おどりました","つんつん、やさしく して ください","ふぇ…","すこし、おどろきました"],
+      eat:["おいしい です…","ゆっくり たべますね","ごちそうさま でした","やさしい あじ です",
+           "もう ひとくち だけ…","あたたかい と、ほっと します","よく かんで います","しあわせ です…"],
+      hint:["SET を おして、がぞう を えらべます","なまえ を いれて もらえると うれしい です",
+            "パレット で、え が かけます","じゅうじキー で、すこし ずつ うごきます",
+            "いえ マーク で、へや が かわります","カメラ マーク で、しゃしん が とれます",
+            "ケーキ の ところ、ごはん です","むずかしい ときは、ゆっくり で だいじょうぶ"],
+      held:["なでて くれるの、うれしい です","ゆっくり で だいじょうぶ です","あったかい ですね",
+            "そのまま いて ください","うれしくて、ねむく なりそう"],
+      play:["ふわ… とんでる みたい","たかく して くれて ありがとう","こわくない です","ゆらゆら、きもちいい です",
+            "そら から みると ひろい ですね","おろさないで ください ね… なんて"]
+    }
+  },
+  nyan:{
+    label:"にゃん", me:"わたし",
+    calls:[ "{name} にゃ", "ねえ {name} にゃ", "{name}、すき にゃ", "{name} どこ にゃ",
+            "{name} にゃん ♪", "{name}！ にゃ！" ],
+    lines:{
+      happy:["にゃーん！ たのしい にゃ","{me}、{name} だにゃ","えへへ にゃ","あそぶ にゃ！",
+             "ごきげん にゃよ","にゃんにゃん ♪","おやつ で てき にゃ","うれしい にゃー"],
+      sing:["♪ にゃー にゃー にゃー","うたう にゃ！","みみ で きいて にゃ",
+            "♪ にゃん にゃん にゃん","いい こえ にゃろ？","ライブ する にゃ",
+            "いっしょに うたう にゃ","アンコール にゃ"],
+      sleepy:["ねむい にゃ…","すぴー にゃ","ひざ かして にゃ","ねこは 1にち 16じかん ねる にゃ",
+              "もう ねる にゃ","まぶた おもい にゃ","ゆめで あおう にゃ","おやすみ にゃ…"],
+      hungry:["おなか すいた にゃ","さかな たべたい にゃ","ごはん まだ にゃ？","にゃーん（はらへった）",
+              "おやつ ちょーだい にゃ","かつおぶし にゃ","はやく にゃ","がまん できない にゃ"],
+      love:["すき にゃ ♡","ずっと いっしょ にゃ","なでて にゃ","ゴロゴロ いってる にゃ",
+            "あなたの ひざ が すき にゃ","にゃん ♡","はなれない にゃ","て つなぐ にゃ"],
+      confused:["にゃ…？ どこ いく にゃ","め まわる にゃ","おろして にゃー","ここ どこ にゃ",
+                "こわい にゃ","ふわふわ する にゃ","まって にゃ","にゃーん…？"],
+      angry:["しゃーっ！","おこった にゃ","さわる にゃ！","ここ が おちつく にゃ","ぷんぷん にゃ",
+             "あやまる にゃ","もう かまわない にゃ","しゃー しゃー"],
+      surprised:["にゃっ！？","びっくり した にゃ","こちょこちょ だめ にゃ","つんつん やめる にゃ",
+                 "にゃー！","け が たつ にゃ","とびのる にゃ","こわい こわい にゃ"],
+      eat:["おいしい にゃ！","もぐもぐ にゃ","おかわり にゃ","さかな さいこう にゃ",
+           "ごちそうさま にゃ","ぱくぱく にゃ","しあわせ にゃ…","もう いっこ にゃ"],
+      hint:["SET おす にゃ","がぞう えらぶ にゃ","パレット で え かく にゃ","じゅうじキー で うごく にゃ",
+            "いえ マーク で へや が かわる にゃ","カメラ で しゃしん にゃ",
+            "{name} って よんで ほしい にゃ","ドット の あらさ かえる にゃ"],
+      held:["なでなで うれしい にゃ","ゴロゴロ にゃ","もっと なでる にゃ","ここ が いい にゃ",
+            "て あったかい にゃ"],
+      play:["にゃー！ たかいたかいにゃ","とぶの すき にゃ","もっと にゃ！","そら とんでる にゃ",
+            "もう いっかい にゃ","ゆらゆら きもちいい にゃ"]
+    }
+  }
+};
+const VOICE_KEY = "picot_voice_v1";
+const NAME_KEY  = "picot_name_v1";
+let voiceId = "normal", meWord = "";      /* meWord:"" ＝ ボイスにまかせる */
+
+function fillLine(s){
+  const me = meWord || (VOICES[voiceId] ? VOICES[voiceId].me : "わたし");
+  s = s.replace(/\{name\}/g, oshiName);
+  s = s.replace(/\{me\}、/g, me ? me + "、" : "");
+  s = s.replace(/\{me\}/g, me || "");
+  return s;
+}
+
+/* ========== 時間・季節・イベントのセリフ ========== */
+const WORLD_LINES = {
+  normal:{
+    time:{
+      asa:["おはよう","あさの ひかり、きもちいいね","きょうも いい ひ に しよう"],
+      hiru:["こんにちは","おひる だね","いい てんき だね"],
+      yuu:["ゆうがた だね","そら が あかくなってきた","もう すこしで よる だね"],
+      yoru:["こんばんは","よる だね… しずか","きょうも おつかれさま"],
+      yonaka:["よなか だよ… ねないの？","しーん と してるね","はやく ねよう？"]
+    },
+    season:{
+      haru:["はる だね","さくら、きれい だよ","あたたかく なってきたね","ぽかぽか する"],
+      natsu:["あついね…","せみ の こえ が する","つめたい もの たべたい","なつ って こんな に あついっけ"],
+      aki:["あき だね","すずしく なってきたね","この ごろ さむい…？","おちば の におい が する"],
+      fuyu:["さむいね…","こごえちゃう","ゆき、ふる かな","あったかい ところ に いたい"]
+    },
+    special:{
+      newyear:["あけまして おめでとう","ことしも よろしくね"],
+      setsubun:["せつぶん だね。まめ まく？"],
+      hinamatsuri:["ひなまつり だね"],
+      tanabata:["たなばた だよ。ねがいごと した？"],
+      halloween:["ハロウィン だって！"],
+      christmas:["クリスマス… ♪"],
+      omisoka:["もう すこしで としが あけるね"]
+    }
+  },
+  genki:{
+    time:{
+      asa:["おはよー！ おきたか！","あさ だぞ！ いそげ！","ねぼすけ、め が さめろー"],
+      hiru:["ひる だぞー！","はら へる じかん だな","いい てんき じゃん！"],
+      yuu:["ゆうがた だ！ そら みろよ！","もう くらく なる ぞ","きょう なんか はやかったな"],
+      yoru:["よる だな… まだ あそぶ ぞ","こんな じかん まで おきてる！","よる は オレの じかん だ"],
+      yonaka:["よなか じゃん！ ねるなよ！","こんな じかん に なにしてんの","よなか の さんぽ いくぞ"]
+    },
+    season:{
+      haru:["はる きたー！","さくら みに いこうぜ","あったかく なって きたな","はる は ねむく なる んだよな…"],
+      natsu:["あつすぎ じゃん！","かきごおり たべたい！","なつ だ！ はしゃぐぞ！","せみ うるさい な！"],
+      aki:["あき じゃん。さむく なってきたな","おちば ふむの たのしい ぞ","もう さむいって！","あき は うまい ものが いっぱい だ"],
+      fuyu:["さむ！ さむいって！","ゆき ふれー！","こたつ に はいりたい…","はやく はる こい！"]
+    },
+    special:{
+      newyear:["あけおめ！ ことよろ！","としが あけた ぞー！"],
+      setsubun:["せつぶん！ オレが おに やる！"],
+      hinamatsuri:["ひなまつり？ ケーキ の ひ だろ！"],
+      tanabata:["たなばた！ ねがい かいた か！"],
+      halloween:["ハロウィン だ！ おかし よこせ！"],
+      christmas:["クリスマス！ プレゼント は？"],
+      omisoka:["もう すぐ としが あける ぞ！"]
+    }
+  },
+  yasashi:{
+    time:{
+      asa:["おはよう ございます","あさは すずしい ですね","ゆっくり はじめて いきましょう"],
+      hiru:["こんにちは","おひる ごはん は たべました か","いい おてんき です"],
+      yuu:["ゆうがた ですね","そら が きれい です","もう すぐ くらく なります"],
+      yoru:["こんばんは","きょうも おつかれさまでした","よる は しずか で いい ですね"],
+      yonaka:["よなか ですね… ねむれない の ですか","おちゃ でも いれましょう か","はやめ に やすんで ください"]
+    },
+    season:{
+      haru:["はる ですね","さくら が きれい です","あたたかく なって、うれしい です","すこし ねむい きせつ ですね"],
+      natsu:["あつい ですね…","むり を しないで ください","つめたい おちゃ どうぞ","なつ の そら は たかい ですね"],
+      aki:["すずしく なって きました","かぜ が きもちいい ですね","かぜ ひかないで ください ね","あき の ひざし は やさしい です"],
+      fuyu:["さむい ですね…","あったかく して ください","ゆき、みたい ですね","て が つめたい です"]
+    },
+    special:{
+      newyear:["あけまして おめでとう ございます","ことしも、よろしく おねがいします"],
+      setsubun:["せつぶん ですね。まめ、たべます か"],
+      hinamatsuri:["ひなまつり ですね"],
+      tanabata:["たなばた です。おねがいごと、しました か"],
+      halloween:["ハロウィン ですね… おかし、あります よ"],
+      christmas:["クリスマス、しずかに すごしましょう か"],
+      omisoka:["もう すこしで としが あけます ね"]
+    }
+  },
+  nyan:{
+    time:{
+      asa:["おはようにゃ","あさ にゃー","ねぼすけ にゃ…"],
+      hiru:["ひる にゃ","おひるね の じかん にゃ","いい てんき にゃ"],
+      yuu:["ゆうがた にゃ","そら あかい にゃ","もう くらい にゃ"],
+      yoru:["こんばんは にゃ","ねこ の じかん にゃ","よる は げんき にゃ"],
+      yonaka:["よなか にゃ…","ねこ は よる に うごく にゃ","はやく ねる にゃ"]
+    },
+    season:{
+      haru:["はる にゃ","さくら の におい が する にゃ","ぽかぽか にゃ","はる は ねむい にゃ"],
+      natsu:["あつい にゃ…","ひかげ に いこう にゃ","なつ は くたくた にゃ","かきごおり にゃ"],
+      aki:["あき にゃ","さむく なってきた にゃ","おちば で あそぶ にゃ","かぜ が きもちいい にゃ"],
+      fuyu:["さむい にゃ！","ゆき にゃ！","こたつ にゃ…","まるく なる にゃ（さむい）"]
+    },
+    special:{
+      newyear:["あけおめ にゃ","ことしも よろしく にゃ"],
+      setsubun:["まめ まく にゃ"],
+      hinamatsuri:["ひなまつり にゃ"],
+      tanabata:["たなばた にゃ。ねがい かなう といい にゃ"],
+      halloween:["ハロウィン にゃ！ おかし にゃ！"],
+      christmas:["クリスマス にゃ ♪"],
+      omisoka:["もう すぐ としが あける にゃ"]
+    }
+  }
+};
+
+function getTimeSlot(){
+  const h = new Date().getHours();
+  if(h >= 5 && h < 10) return "asa";
+  if(h >= 10 && h < 17) return "hiru";
+  if(h >= 17 && h < 19) return "yuu";
+  if(h >= 19 && h < 23) return "yoru";
+  return "yonaka";
+}
+function getSeason(){
+  const m = new Date().getMonth() + 1;
+  if(m >= 3 && m <= 5) return "haru";
+  if(m >= 6 && m <= 8) return "natsu";
+  if(m >= 9 && m <= 11) return "aki";
+  return "fuyu";
+}
+function getSpecialDay(){
+  const d = new Date(), m = d.getMonth() + 1, day = d.getDate();
+  if(m === 1 && day <= 3) return "newyear";
+  if(m === 2 && day === 3) return "setsubun";
+  if(m === 3 && day === 3) return "hinamatsuri";
+  if(m === 7 && day === 7) return "tanabata";
+  if(m === 10 && day === 31) return "halloween";
+  if(m === 12 && (day === 24 || day === 25)) return "christmas";
+  if(m === 12 && day === 31) return "omisoka";
+  return null;
+}
+function pickOne(arr){ return arr[(Math.random() * arr.length) | 0]; }
+let lastWorldLine = "";
+function worldLine(kind){
+  const w = WORLD_LINES[voiceId] || WORLD_LINES.normal;
+  const sp = getSpecialDay();
+  let pool;
+  if(kind === "season") pool = w.season[getSeason()];
+  else if(kind === "time") pool = w.time[getTimeSlot()];
+  else if(kind === "greet") pool = (sp && w.special[sp]) ? w.special[sp] : w.time[getTimeSlot()];
+  else if(sp && w.special[sp]) pool = w.special[sp];
+  else pool = Math.random() < 0.5 ? w.time[getTimeSlot()] : w.season[getSeason()];
+  let line = pickOne(pool);
+  if(line === lastWorldLine && pool.length > 1){
+    line = pickOne(pool);
+  }
+  lastWorldLine = line;
+  return fillLine(line);
+}
+let balloonTypeTimer, balloonHideTimer;
+
 let moodFxTimer = null, idleTalkTimer = null, lastSpeakAt = 0;
 
 /* 低解像度で描いて2値化 → ドット文字 */
@@ -3789,14 +4095,29 @@ function startMoodFx(kind){
 
 function say(mood){
   const m = MOODS[mood] || MOODS.happy;
-  let line;
-  if(oshiName && Math.random() < 0.24){
-    const calls = [oshiName + "！", oshiName + " ♪", oshiName + "…♡",
-                   oshiName + " だいすき", "ねえ " + oshiName, oshiName + "、いる？"];
-    line = calls[(Math.random() * calls.length) | 0];
-  }else{
-    line = m.lines[(Math.random() * m.lines.length) | 0];
+  const v = VOICES[voiceId] || VOICES.normal;
+  if(mood === "world" || mood === "time" || mood === "season" || mood === "greet"){
+    const wl = worldLine(mood);
+    lastSaidLine = wl;
+    hideThought(); showBalloon(wl); startMoodFx(null); lastSpeakAt = Date.now();
+    return;
   }
+  let pool = (v.lines && v.lines[mood]) || m.lines;
+  if(!oshiName) pool = pool.filter(function(l){ return l.indexOf("{name}") < 0; });
+  if(!pool.length) pool = m.lines;
+  let line;
+  if(oshiName && Math.random() < 0.22){
+    line = v.calls[(Math.random() * v.calls.length) | 0];
+  }else{
+    line = pool[(Math.random() * pool.length) | 0];
+  }
+  line = fillLine(line);
+  if(line === lastSaidLine && pool.length > 1){
+    for(let k = 0; k < 3 && line === lastSaidLine; k++){
+      line = fillLine(pool[(Math.random() * pool.length) | 0]);
+    }
+  }
+  lastSaidLine = line;
   hideThought();
   showBalloon(line);
   startMoodFx(m.fx);
@@ -3805,7 +4126,7 @@ function say(mood){
 
 function pickIdleMood(){
   if(!state.isUserPhoto && Math.random() < 0.55) return "hint";
-  const pool = ["happy","happy","sing","sing","sleepy","hungry","love"];
+  const pool = ["happy","happy","sing","sing","sleepy","hungry","love","world","world"];
   return pool[(Math.random() * pool.length) | 0];
 }
 
@@ -3822,6 +4143,7 @@ function scheduleTalk(delay){
 }
 
 let oshiName = "";
+let lastSaidLine = "";
 
 /* ========== 考えごと（idle時） ========== */
 let thinkHideTimer = null, lastThingAt = 0;
@@ -4901,6 +5223,76 @@ function restorePet(){
   }catch(e){ return false; }
 }
 
+/* ===== しゃべりかたの選択と保存 ===== */
+function saveVoice(){
+  try{ localStorage.setItem(VOICE_KEY, JSON.stringify({ v:voiceId, me:meWord })); }catch(e){}
+  renderDataList();
+}
+function applyVoice(){
+  document.querySelectorAll("#voicePicks .vchip").forEach(function(el){
+    const on = el.getAttribute("data-v") === voiceId;
+    el.classList.toggle("on", on);
+    el.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  document.querySelectorAll("#mePicks .vchip").forEach(function(el){
+    const on = (el.getAttribute("data-me") || "") === meWord;
+    el.classList.toggle("on", on);
+    el.setAttribute("aria-checked", on ? "true" : "false");
+  });
+}
+function buildVoicePicks(){
+  const vbox = $("#voicePicks"), mbox = $("#mePicks");
+  if(vbox){
+    vbox.innerHTML = "";
+    Object.keys(VOICES).forEach(function(k){
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "vchip";
+      b.setAttribute("data-v", k); b.setAttribute("role", "radio");
+      b.textContent = VOICES[k].label;
+      b.addEventListener("click", function(){
+        voiceId = k; applyVoice(); saveVoice();
+        blip(1046,0.06,"square",0.045); blip(1318,0.08,"triangle",0.04,0.09);
+        say("happy");
+      });
+      vbox.appendChild(b);
+    });
+  }
+  if(mbox){
+    mbox.innerHTML = "";
+    [["", "おまかせ"], ["ぼく", "ぼく"], ["わたし", "わたし"], ["おれ", "おれ"]].forEach(function(pair){
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "vchip";
+      b.setAttribute("data-me", pair[0]); b.setAttribute("role", "radio");
+      b.textContent = pair[1];
+      b.addEventListener("click", function(){
+        meWord = pair[0];
+        applyVoice(); saveVoice();
+        blip(1244,0.05,"triangle",0.04);
+        say("happy");
+      });
+      mbox.appendChild(b);
+    });
+  }
+  applyVoice();
+}
+function loadVoice(){
+  try{
+    const raw = localStorage.getItem(VOICE_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(d && VOICES[d.v]) voiceId = d.v;
+      if(d && typeof d.me === "string") meWord = d.me;
+    }
+  }catch(e){}
+}
+function saveName(){
+  try{
+    if(oshiName) localStorage.setItem(NAME_KEY, oshiName);
+    else localStorage.removeItem(NAME_KEY);
+  }catch(e){}
+  renderDataList();
+}
+
 /* ===== データ（一覧・バックアップ・復元） ===== */
 const BACKUP_RE = /^(picot_|oshiboy_)/;
 function bytesLabel(n){
@@ -4934,6 +5326,8 @@ function renderDataList(){
   rows.push(['にっき・きろく', diary ? bytesLabel(diary) : "なし"]);
   const shell = keySize(SHELL_KEY), tone = keySize(ART_KEY);
   rows.push(['本体カラー・設定', (shell || tone) ? bytesLabel(shell + tone) : "なし"]);
+  const nm = keySize(NAME_KEY), vc = keySize(VOICE_KEY);
+  rows.push(['なまえ・しゃべりかた', (nm || vc) ? bytesLabel(nm + vc) : "なし"]);
   box.innerHTML = rows.map(function(r){
     return '<div class="data-row"><b>' + r[0] + '</b><span class="sz">' + r[1] + '</span></div>';
   }).join("");
@@ -5033,6 +5427,10 @@ function init(){
   buildShellPicks();
   buildArtTone();
   applyShell(shellId, false);
+  /* なまえ・しゃべりかた */
+  try{ const nv = localStorage.getItem(NAME_KEY); if(nv){ oshiName = nv; $("#nameInput").value = nv; } }catch(e){}
+  loadVoice();
+  buildVoicePicks();
   /* まえに遊んだ絵をよみこむ */
   try{ restorePet(); }catch(e){}
   renderDataList();
@@ -5070,7 +5468,21 @@ function init(){
 
   /* 初期マスコット */
   setSource(buildMascotDataURL(), false);
-  scheduleTalk(4200);
+  setTimeout(function(){ if(!document.hidden) say("greet"); }, 1700);
+  /* タブに もどって きたら、そのときの あいさつ（20ぷん いじょう はなれて いたら）*/
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", function(){
+    if(document.hidden){ hiddenAt = Date.now(); return; }
+    if(!hiddenAt) return;
+    const away = Date.now() - hiddenAt;
+    hiddenAt = 0;
+    if(away > 20 * 60 * 1000){
+      hideThought();
+      say("greet");
+      scheduleTalk(6500);
+    }
+  });
+  scheduleTalk(5600);
   schedulePico();
   applyDisplayMode();
   applyTransform();
@@ -5183,7 +5595,7 @@ function init(){
 
   /* ===== キャラをつまむ：長おしで つかむ → はなすと 十字キーの位置へ もどる ===== */
   let grabTimer = null, grabbing = false, grabId = null;
-  let grabX = 0, grabY = 0, grabDist = 0, grabAngry = false;
+  let grabX = 0, grabY = 0, grabDist = 0, grabAngry = false, grabMood = "";
 
   function releaseGrab(){
     if(!grabbing) return;
@@ -5194,7 +5606,7 @@ function init(){
     spriteZoom.style.transition = "transform .46s cubic-bezier(.28,1.16,.46,1)";
     spriteZoom.style.transform = "translate(0px,0px) scale(" + state.zoom + ")";
     blip(392,0.06,"triangle",0.045); blip(294,0.09,"triangle",0.04,0.10);
-    say(grabAngry ? "angry" : "confused");
+    say(grabMood || (grabAngry ? "angry" : "confused"));
     setTimeout(function(){
       spriteZoom.style.transition = "";
       dragDX = 0; dragDY = 0;
@@ -5208,12 +5620,13 @@ function init(){
     const r = spriteContent.getBoundingClientRect();
     if(!(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)) return;
     grabId = e.pointerId; grabX = e.clientX; grabY = e.clientY;
-    grabDist = 0; grabAngry = false;
+    grabDist = 0; grabAngry = false; grabMood = "";
     clearTimeout(grabTimer);
     grabTimer = setTimeout(function(){
       grabbing = true;
       spriteContent.classList.add("is-grabbed");
-      say("confused");
+      grabMood = Math.random() < 0.6 ? "held" : "confused";
+      say(grabMood);
       blip(660,0.05,"triangle",0.04);
     }, 190);
   });
@@ -5232,9 +5645,12 @@ function init(){
     grabDist = Math.max(grabDist, Math.sqrt(cx*cx + cy*cy));
     if(!grabAngry && grabDist > 90){
       grabAngry = true;
-      say("angry");
-      playAnim(spriteShake, "is-pico-wiggle", 540);
-      blip(392,0.06,"square",0.05);
+      grabMood = Math.random() < 0.68 ? "play" : "angry";
+      say(grabMood);
+      if(grabMood === "angry"){
+        playAnim(spriteShake, "is-pico-wiggle", 540);
+        blip(392,0.06,"square",0.05);
+      }
     }
   }, {passive:true});
   window.addEventListener("pointerup", function(e){
@@ -5439,6 +5855,7 @@ function init(){
   /* ふってくるもの（じぶんの素材） */
   $("#nameInput").addEventListener("input", function(e){
     oshiName = (e.target.value || "").trim().slice(0, 12);
+    saveName();
   });
   document.addEventListener("pointerdown", hideThought, true);
   document.addEventListener("pointerdown", function(){
@@ -5602,5 +6019,5 @@ if(document.readyState === "loading"){
 }
 })();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a58335907acfa5fb',t:'MTc5NDI5NDMzMA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a58335907acfa5fb',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
