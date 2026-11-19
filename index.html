@@ -592,9 +592,11 @@ body::before{
 .controls{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 6px 4px}
 
 /* d-pad */
-.dpad{position:relative;width:106px;height:106px;flex:0 0 auto}
+html,body{overscroll-behavior:none}
+.dpad{position:relative;width:106px;height:106px;flex:0 0 auto;touch-action:none;-webkit-user-select:none;user-select:none}
 .dpad button{
   position:absolute;border:0;padding:0;margin:0;cursor:pointer;
+  touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
   background:linear-gradient(160deg,#6b6390,#4d4670);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -2px 3px rgba(0,0,0,.45),0 2px 0 rgba(50,40,80,.55);
   transition:transform .06s,box-shadow .06s,filter .06s;
@@ -873,9 +875,11 @@ input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radiu
 .controls{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 6px 4px}
 
 /* d-pad */
-.dpad{position:relative;width:106px;height:106px;flex:0 0 auto}
+html,body{overscroll-behavior:none}
+.dpad{position:relative;width:106px;height:106px;flex:0 0 auto;touch-action:none;-webkit-user-select:none;user-select:none}
 .dpad button{
   position:absolute;border:0;padding:0;margin:0;cursor:pointer;
+  touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
   background:linear-gradient(160deg,#6b6390,#4d4670);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -2px 3px rgba(0,0,0,.45),0 2px 0 rgba(50,40,80,.55);
   transition:transform .06s,box-shadow .06s,filter .06s;
@@ -1581,7 +1585,8 @@ body{background:var(--sh-page) fixed}
 }
 /* 十字キー：画像の十字に透明な当たり判定を重ねる */
 :root[data-shell="art"] .dpad{
-  position:absolute;left:29.2%;top:68.7%;transform:translate(-50%,-50%) scale(1.24);
+  /* 位置は 絵の十字の中心（実測 23.66% / 68.12%）。大きさは JS が --art-dpad-s で合わせる */
+  position:absolute;left:23.66%;top:68.12%;transform:translate(-50%,-50%) scale(var(--art-dpad-s,1.1));
 }
 :root[data-shell="art"] .dpad button{background:none;box-shadow:none}
 :root[data-shell="art"] .dpad button::after{border-color:transparent}
@@ -2844,6 +2849,7 @@ function setSource(src, isUserPhoto){
 }
 
 function layoutSprite(){
+  fitArtDpad();
   if(!state.srcReady) return;
   const sw = screenEl.clientWidth || 300;
   const sh = screenEl.clientHeight || 225;
@@ -5070,6 +5076,18 @@ function closeAllSheets(){ closeSheet(); closeSound(); }
 
 /* メニューを開いている間は、本体がシートの上に収まるように縮小する */
 let fitTimer = 0;
+/* ドット絵テーマ：十字キーの当たり判定を 絵の大きさに 合わせる */
+function fitArtDpad(){
+  try{
+    const d = document.getElementById("device");
+    if(!d) return;
+    const w = d.clientWidth || 0;
+    if(!w) return;
+    const s = Math.max(0.6, Math.min(2.4, (w * 0.278) / 106));
+    document.documentElement.style.setProperty("--art-dpad-s", s.toFixed(3));
+  }catch(e){}
+}
+
 function fitDeviceForSheet(final){
   const d = document.getElementById("device");
   if(!d) return;
@@ -5126,6 +5144,7 @@ function applyShell(id, save){
       setTimeout(function(){ try{ tonePanel.scrollIntoView({block:"nearest",behavior:"smooth"}); }catch(e){} }, 80);
     }
   }
+  fitArtDpad();
   fitDeviceForSheet();   /* テーマで本体の高さが変わるので、開いていれば合わせ直す */
 }
 function buildShellPicks(){
@@ -5514,10 +5533,21 @@ function init(){
       clearTimeout(timer); clearInterval(repeated);
       timer = null; repeated = null;
     };
-    btn.addEventListener("pointerdown", start);
+    btn.addEventListener("pointerdown", function(e){
+      e.preventDefault();
+      /* 指が ずれても 押しっぱなしを 続ける（iPadで 上下が きかない対策） */
+      try{ btn.setPointerCapture(e.pointerId); }catch(err){}
+      start(e);
+    });
     btn.addEventListener("pointerup", stop);
     btn.addEventListener("pointercancel", stop);
-    btn.addEventListener("pointerleave", stop);
+    btn.addEventListener("lostpointercapture", stop);
+    btn.addEventListener("pointerleave", function(e){
+      if(!btn.hasPointerCapture || !btn.hasPointerCapture(e.pointerId)) stop();
+    });
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
     btn.addEventListener("contextmenu", function(e){ e.preventDefault(); });
   });
 
@@ -6019,5 +6049,5 @@ if(document.readyState === "loading"){
 }
 })();
 </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5ce0fc99a5b25d5',t:'MTc5NTA3OTIxNQ=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5ce0fc99a5b25d5',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
